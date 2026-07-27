@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Simulador TRI - Teste Rápido de Inteligência</title>
+  
+  <!-- Tailwind CSS para estilização -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Bibliotecas do React -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  
+  <!-- Babel para compilar o código React (JSX) direto no navegador -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    /* Estilos personalizados leves para animações */
+    .pulse-red {
+      animation: pulse-red 2s infinite;
+    }
+    @keyframes pulse-red {
+      0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+      70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans min-h-screen">
+  
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    const TOTAL_QUESTIONS = 15;
+    const TIME_LIMIT_SECONDS = 4 * 60; // 4 minutos
+    
+    // Gabarito oficial conforme página 8 (Crivo)
+    const CRIVO = ['a', 'c', 'b', 'd', 'd', 'c', 'a', 'a', 'a', 'c', 'a', 'b', 'a', 'c', 'a'];
+
+    // Tabela 14: Normas e Percentis (Aproximados com base no PDF)
+    const PERCENTILE_TABLE = {
+      '15_27': {
+        15: { percentil: 99, class: 'Superior' },
+        14: { percentil: 95, class: 'Superior' },
+        13: { percentil: 90, class: 'Superior' },
+        12: { percentil: 80, class: 'Média superior' },
+        11: { percentil: 75, class: 'Média superior' },
+        10: { percentil: 60, class: 'Média' },
+        9:  { percentil: 50, class: 'Média' },
+        8:  { percentil: 40, class: 'Média' },
+        7:  { percentil: 30, class: 'Média inferior' },
+        6:  { percentil: 20, class: 'Inferior' },
+        5:  { percentil: 10, class: 'Inferior' },
+        4:  { percentil: 10, class: 'Inferior' },
+        3:  { percentil: 1,  class: 'Inferior' },
+        2:  { percentil: 1,  class: 'Inferior' },
+        1:  { percentil: 1,  class: 'Inferior' },
+        0:  { percentil: 1,  class: 'Inferior' },
+      },
+      'total': {
+        15: { percentil: 99, class: 'Superior' },
+        14: { percentil: 95, class: 'Superior' },
+        13: { percentil: 90, class: 'Superior' },
+        12: { percentil: 85, class: 'Média superior' },
+        11: { percentil: 80, class: 'Média superior' },
+        10: { percentil: 60, class: 'Média' },
+        9:  { percentil: 50, class: 'Média' },
+        8:  { percentil: 40, class: 'Média' },
+        7:  { percentil: 30, class: 'Média inferior' },
+        6:  { percentil: 25, class: 'Média inferior' },
+        5:  { percentil: 10, class: 'Inferior' },
+        4:  { percentil: 10, class: 'Inferior' },
+        3:  { percentil: 1,  class: 'Inferior' },
+        2:  { percentil: 1,  class: 'Inferior' },
+        1:  { percentil: 1,  class: 'Inferior' },
+        0:  { percentil: 1,  class: 'Inferior' },
+      }
+    };
+
+    const OptionButton = ({ label, isSelected, onClick }) => (
+      <button
+        onClick={onClick}
+        className={`w-full py-4 text-xl font-bold rounded-xl border-2 transition-all ${
+          isSelected 
+            ? 'bg-blue-600 border-blue-600 text-white shadow-lg scale-[1.02]' 
+            : 'bg-white border-slate-300 text-slate-600 hover:border-blue-400 hover:bg-blue-50'
+        }`}
+      >
+        {label.toUpperCase()}
+      </button>
+    );
+
+    const QuestionNav = ({ total, current, answers, setQuestion }) => (
+      <div className="flex flex-wrap gap-2 justify-center mb-6">
+        {Array.from({ length: total }).map((_, idx) => {
+          const isAnswered = answers[idx] !== null;
+          const isCurrent = current === idx;
+          return (
+            <button
+              key={idx}
+              onClick={() => setQuestion(idx)}
+              className={`w-10 h-10 rounded-full font-bold text-sm transition-colors flex items-center justify-center border-2 ${
+                isCurrent ? 'border-blue-600 ring-2 ring-blue-300' : 'border-transparent'
+              } ${
+                isAnswered 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-slate-200 text-slate-500 hover:bg-slate-300'
+              }`}
+            >
+              {idx + 1}
+            </button>
+          );
+        })}
+      </div>
+    );
+
+    function App() {
+      // Telas: 'start', 'test', 'result'
+      const [screen, setScreen] = useState('start');
+      const [ageGroup, setAgeGroup] = useState('15_27');
+      
+      const [currentQuestion, setCurrentQuestion] = useState(0);
+      const [answers, setAnswers] = useState(Array(TOTAL_QUESTIONS).fill(null));
+      
+      const [timeLeft, setTimeLeft] = useState(TIME_LIMIT_SECONDS);
+      const timerRef = useRef(null);
+
+      // Controle do Cronômetro
+      useEffect(() => {
+        if (screen === 'test' && timeLeft > 0) {
+          timerRef.current = setInterval(() => {
+            setTimeLeft(prev => prev - 1);
+          }, 1000);
+        } else if (timeLeft === 0 && screen === 'test') {
+          finishTest();
+        }
+        return () => clearInterval(timerRef.current);
+      }, [screen, timeLeft]);
+
+      const startTest = () => {
+        setAnswers(Array(TOTAL_QUESTIONS).fill(null));
+        setCurrentQuestion(0);
+        setTimeLeft(TIME_LIMIT_SECONDS);
+        setScreen('test');
+      };
+
+      const finishTest = () => {
+        clearInterval(timerRef.current);
+        setScreen('result');
+      };
+
+      const handleAnswer = (option) => {
+        const newAnswers = [...answers];
+        newAnswers[currentQuestion] = option;
+        setAnswers(newAnswers);
+        
+        // Avança automaticamente se não for a última
+        if (currentQuestion < TOTAL_QUESTIONS - 1) {
+          setTimeout(() => setCurrentQuestion(prev => prev + 1), 200);
+        }
+      };
+
+      const formatTime = (seconds) => {
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        return `${m}:${s.toString().padStart(2, '0')}`;
+      };
+
+      if (screen === 'start') {
+        return (
+          <div className="min-h-screen flex items-center justify-center p-4">
+            <div className="bg-white max-w-2xl w-full p-8 rounded-2xl shadow-xl border-t-4 border-blue-800">
+              <h1 className="text-3xl font-bold text-slate-800 mb-2">Simulador TRI</h1>
+              <h2 className="text-xl text-slate-600 mb-6">Teste Rápido de Inteligência (Fator G)</h2>
+              
+              <div className="bg-blue-50 text-blue-900 p-6 rounded-xl mb-6 border border-blue-100 space-y-3">
+                <p><strong>Instruções de Uso:</strong></p>
+                <ul className="list-disc pl-5 space-y-1 text-sm">
+                  <li>Este simulador serve como um <strong>Gabarito Eletrônico</strong>.</li>
+                  <li>Abra o caderno de teste (PDF do TRI) lado a lado com esta tela.</li>
+                  <li>Você terá exatos <strong>4 minutos</strong> para responder às 15 questões matrizes.</li>
+                  <li>O objetivo é identificar a figura que completa a lógica do quadro em branco.</li>
+                  <li>O teste encerrará automaticamente quando o tempo acabar.</li>
+                </ul>
+              </div>
+
+              <div className="mb-8">
+                <label className="block text-sm font-bold text-slate-700 mb-2">Selecione sua faixa etária (Para cálculo do Percentil):</label>
+                <select 
+                  value={ageGroup}
+                  onChange={(e) => setAgeGroup(e.target.value)}
+                  className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                >
+                  <option value="15_27">15 a 27 anos (Mais comum em seleções iniciais)</option>
+                  <option value="total">Amostra Geral (Todas as idades / 28 a 50+)</option>
+                </select>
+              </div>
+
+              <button 
+                onClick={startTest}
+                className="w-full py-4 bg-blue-700 hover:bg-blue-800 text-white font-bold text-lg rounded-xl shadow-md transition-all active:scale-95"
+              >
+                INICIAR TESTE AGORA
+              </button>
+            </div>
+          </div>
+        );
+      }
+
+      if (screen === 'test') {
+        const isUrgent = timeLeft <= 60;
+        
+        return (
+          <div className="min-h-screen flex flex-col p-4 bg-slate-50">
+            <div className="max-w-3xl w-full mx-auto bg-white rounded-2xl shadow-lg flex-1 flex flex-col overflow-hidden">
+              
+              {/* Header do Teste */}
+              <header className="bg-slate-800 text-white p-4 flex justify-between items-center">
+                <div>
+                  <h1 className="font-bold text-lg">Simulador TRI</h1>
+                  <span className="text-slate-300 text-sm">Questão {currentQuestion + 1} de {TOTAL_QUESTIONS}</span>
+                </div>
+                <div className={`flex items-center gap-2 px-4 py-2 rounded-lg font-mono text-xl font-bold tracking-wider ${isUrgent ? 'bg-red-600 pulse-red' : 'bg-slate-700'}`}>
+                  ⏱ {formatTime(timeLeft)}
+                </div>
+              </header>
+
+              <div className="p-6 flex-1 flex flex-col">
+                <QuestionNav 
+                  total={TOTAL_QUESTIONS} 
+                  current={currentQuestion} 
+                  answers={answers} 
+                  setQuestion={setCurrentQuestion} 
+                />
+
+                <div className="flex-1 flex flex-col items-center justify-center">
+                  <div className="text-center mb-8">
+                    <p className="text-slate-500 mb-2 uppercase tracking-widest text-sm font-bold">Consulte o seu PDF</p>
+                    <h2 className="text-3xl font-bold text-slate-800">
+                      Qual é a resposta da Questão {currentQuestion + 1}?
+                    </h2>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 w-full max-w-md">
+                    {['a', 'b', 'c', 'd'].map(opt => (
+                      <OptionButton 
+                        key={opt}
+                        label={opt}
+                        isSelected={answers[currentQuestion] === opt}
+                        onClick={() => handleAnswer(opt)}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mt-8 pt-6 border-t flex justify-between items-center">
+                  <button 
+                    onClick={() => setCurrentQuestion(prev => Math.max(0, prev - 1))}
+                    disabled={currentQuestion === 0}
+                    className="px-6 py-2 text-slate-500 font-bold disabled:opacity-30 hover:bg-slate-100 rounded-lg transition-colors"
+                  >
+                    Anterior
+                  </button>
+                  
+                  {answers.filter(a => a !== null).length === TOTAL_QUESTIONS ? (
+                    <button 
+                      onClick={finishTest}
+                      className="px-8 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl shadow-md transition-all active:scale-95"
+                    >
+                      FINALIZAR TESTE
+                    </button>
+                  ) : (
+                    <button 
+                      onClick={() => setCurrentQuestion(prev => Math.min(TOTAL_QUESTIONS - 1, prev + 1))}
+                      disabled={currentQuestion === TOTAL_QUESTIONS - 1}
+                      className="px-6 py-2 text-blue-600 font-bold disabled:opacity-30 hover:bg-blue-50 rounded-lg transition-colors"
+                    >
+                      Próxima
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // Lógica de cálculo de score
+      let score = 0;
+      const resultsDetail = answers.map((ans, idx) => {
+        const correct = CRIVO[idx];
+        const isCorrect = ans === correct;
+        if (isCorrect) score++;
+        return { q: idx + 1, answered: ans, correct: correct, isCorrect };
+      });
+
+      const normData = PERCENTILE_TABLE[ageGroup][score] || PERCENTILE_TABLE[ageGroup][0];
+      const timeSpent = TIME_LIMIT_SECONDS - timeLeft;
+
+      return (
+        <div className="min-h-screen flex items-center justify-center p-4 bg-slate-200">
+          <div className="bg-white max-w-3xl w-full p-8 rounded-3xl shadow-2xl">
+            <div className="text-center mb-8">
+              <h1 className="text-3xl font-bold text-slate-800 mb-2">Relatório de Desempenho - TRI</h1>
+              <p className="text-slate-500">Tempo de execução: {formatTime(timeSpent)} / 4:00</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+              <div className="bg-blue-50 border border-blue-100 p-6 rounded-2xl flex flex-col items-center justify-center text-center">
+                <span className="text-sm font-bold text-blue-600 uppercase tracking-widest mb-1">Acertos</span>
+                <span className="text-5xl font-black text-blue-900">{score}<span className="text-2xl text-blue-400">/15</span></span>
+              </div>
+              
+              <div className="bg-emerald-50 border border-emerald-100 p-6 rounded-2xl flex flex-col items-center justify-center text-center">
+                <span className="text-sm font-bold text-emerald-600 uppercase tracking-widest mb-1">Percentil</span>
+                <span className="text-5xl font-black text-emerald-900">{normData.percentil}</span>
+                <span className="text-xs text-emerald-700 mt-2">Alvo ideal: 50+</span>
+              </div>
+              
+              <div className="bg-purple-50 border border-purple-100 p-6 rounded-2xl flex flex-col items-center justify-center text-center">
+                <span className="text-sm font-bold text-purple-600 uppercase tracking-widest mb-1">Classificação</span>
+                <span className="text-2xl font-bold text-purple-900">{normData.class}</span>
+              </div>
+            </div>
+
+            <h3 className="font-bold text-slate-700 mb-4 text-lg border-b pb-2">Detalhes por Questão</h3>
+            <div className="grid grid-cols-3 md:grid-cols-5 gap-3 mb-8">
+              {resultsDetail.map((res) => (
+                <div key={res.q} className={`p-3 rounded-lg border-2 flex flex-col items-center ${
+                  res.isCorrect ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+                }`}>
+                  <span className="text-xs font-bold text-slate-500 mb-1">Q{res.q}</span>
+                  <div className="flex gap-2 text-sm">
+                    {res.isCorrect ? (
+                      <span className="font-bold text-green-700 text-lg uppercase">{res.answered || '-'}</span>
+                    ) : (
+                      <>
+                        <span className="font-bold text-red-500 line-through uppercase">{res.answered || '-'}</span>
+                        <span className="font-bold text-green-600 uppercase">{res.correct}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-center">
+              <button 
+                onClick={() => setScreen('start')}
+                className="px-8 py-3 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl transition-colors"
+              >
+                Refazer Simulado
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>

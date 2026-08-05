@@ -114,9 +114,21 @@
         return () => clearInterval(timerRef.current);
       }, [hasWon, currentLevel]);
 
+      const getRandomStartBoard = () => {
+        const balls = ['R', 'G', 'B'];
+        const shuffled = [...balls].sort(() => Math.random() - 0.5);
+        const newBoard = [[], [], []];
+        shuffled.forEach(ball => {
+          const availablePegs = [0, 1, 2].filter(i => newBoard[i].length < PEG_CAPACITIES[i]);
+          const randomPeg = availablePegs[Math.floor(Math.random() * availablePegs.length)];
+          newBoard[randomPeg].push(ball);
+        });
+        return newBoard;
+      };
+
       const loadLevel = (levelIndex) => {
         const level = LEVELS[levelIndex];
-        setBoard(JSON.parse(JSON.stringify(level.start)));
+        setBoard(getRandomStartBoard());
         setTarget(JSON.parse(JSON.stringify(level.target)));
         setMoves(0);
         setSelectedPeg(null);
